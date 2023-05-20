@@ -1,0 +1,251 @@
+---
+author: "Abby Sim"
+title: "2103 Final Project"
+output: word_document
+date: "2022-12-16"
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(haven)
+library(dplyr)
+library(ggplot2)
+mitts <- read_dta('Data/Mitts_2018_dataset.dta')
+options("scipen"=12)
+```
+
+This report focuses on reproducing and evaluating the results of Professor Tamar Mitt's 2017 paper, ["From Isolation to Radicalization: Anti-Muslim Hostility and Support for ISIS in the West."](https://www.cambridge.org/core/journals/american-political-science-review/article/from-isolation-to-radicalization-antimuslim-hostility-and-support-for-isis-in-the-west/C11A754C706DB9F9CAD86D1486A9B97A) 
+
+In this paper, Professor Mitts aimed to determine whether anti-Muslim hostility drives pro-ISIS radicalization in Western Europe. Using data collected by analyzing the social media activity and accounts of 15,000 ISIS activists, including the full social network of their followers across the world, she examined the potential impact of social, economic, and political environment on individuals' likelihood of radicalization. Focusing on France, the UK, Germany, and Belgium, Mitts analyzed the potential causal links between environmental factors (like unemployment levels, the share of immigrants and asylum seekers in each locality, and local-level vote vote shares fore far-right, anti-Muslim parties) and measures of online radicalization (like tweets expressing sympathy with ISIS, tweets expressing an interest in becoming foreign fighters or traveling to Syria, tweets containing anti-West rhetoric, and users flagged as ISIS activists). 
+
+To explore this relationship, Mitts adopted the following least squares model: 
+$$ Y_{ijk} = \beta_1V_{jk} + \beta_2U_{jk} + \beta_3F_{jk} + \beta_4P_{jk} + \beta_5P^2_{jk} + \alpha_k + \epsilon_{ijk} $$
+where `i` represents a Twitter user in geographic area `j` in country `k`; $Y_{ijk}$ represents one of the online radicalization measures for user `i` in area `j` in country `k`; and $V_{jk}$ represents the locality-level vote share for far-right parties matched to user `i` in area `j` in country `k`. $U_{jk}$, $F_{jk}$, and $P_{jk}$ represent unemployment, share of foreigners, and population size matched to user `i` in area `j` in country `k`, respectively, and $\alpha_k$ is a country fixed effect. 
+
+Based on linear regression analysis, the paper concluded that local-level vote share for far-right, anti-Muslim parties in France, the UK, Germany, and Belgium correlates significantly with online radicalization. In substantive terms, an increase of one percentage point in the local-level vote share for far-right parties is associated with a 6% increase in the probability of a user being flagged as ISIS-affiliated. 
+
+```{r}
+indep_var <- mitts %>% select(right_wing_pct, unemployed_pct, immigrants_unemployed_pct, foreigner_pct, population)
+indep_mat <- matrix(nrow=5,ncol=5)
+rownames(indep_mat) <- c('Far-right vote share (%, local level)','Unemployed (%, local level)','Immigrants unemployed (%, local level)','Foreigners/non-citizens (%)','Population')
+colnames(indep_mat) <- c('n','mean','sd','min','max')
+for (i in seq_along(indep_var)){
+  indep_mat[i,'n'] <- dim(indep_var[i])[1]
+  indep_mat[i,'mean'] <- mean(indep_var[[i]],na.rm=T)
+  indep_mat[i,'sd'] <- sd(indep_var[[i]],na.rm=T)
+  indep_mat[i,'min'] <- min(indep_var[[i]],na.rm=T)
+  indep_mat[i,'max'] <- max(indep_var[[i]],na.rm=T)
+}
+indep_mat
+
+dep_var <- mitts %>% select(is_sympathy_count, syrian_war_count, anti_west_count, activist, suspended, num_isis_following)
+dep_mat <- matrix(nrow=6,ncol=5)
+rownames(dep_mat) <- c('Sympathy with ISIS (# tweets)','Syrian war (# tweets)','Anti-West (# tweets)','ISIS activist','Twitter suspension','ISIS accounts following (# accounts)')
+colnames(dep_mat) <- c('n','mean','sd','min','max')
+for (i in seq_along(dep_var)){
+  dep_mat[i,'n'] <- dim(dep_var[i])[1]
+  dep_mat[i,'mean'] <- mean(dep_var[[i]],na.rm=T)
+  dep_mat[i,'sd'] <- sd(dep_var[[i]],na.rm=T)
+  dep_mat[i,'min'] <- min(dep_var[[i]],na.rm=T)
+  dep_mat[i,'max'] <- max(dep_var[[i]],na.rm=T)
+}
+dep_mat
+```
+These matrices, reproduced from the paper's data set, summarize the key independent and dependent variables used in this model. The first matrix `indep_mat` depicts the count, mean, standard deviation, and minimum, and maximum values for each measure of anti-Muslim hostility - i.e. the predictor variables. For example, the first and primary measure of anti-Muslim hostility is far-right vote share, which is measured based on the percentage of votes for far-right parties in the locales surrounding each user/data point. The second matrix `dep_mat` depicts the same summary statistics for each measure of online radicalization - i.e. the response variables. Response variables include numbers of ISIS-sympathetic tweets, and binary categorizations of whether users are flagged as activists or suspended from Twitter.   
+
+In addition to the features already listed, I think an ideal data set to examine the relationship between anti-Muslim hostility and ISIS radicalization would also include variables that offer deeper insight into the causal mechanisms by which hostility can facilitate support for extremism. For example, if the data included more localized information on the socioeconomic identity of the places where extremists emerge (i.e. instead of just unemployment rate, stats on unemployment rates/average incomes among migrants/refugees in each area), the paper might have been able to determine HOW anti-Muslim sentiment drives radicalism. As the paper asks in its conclusion: "Does an environment of anti-Muslim hostility increase support for jihadi ideologies through a process of identity-seeking? Or is it driven by lack of opportunity to integrate into the surrounding society, e.g., by finding employment or increasing social status?" I also think an ideal data set could offer a congregated score for ISIS extremism so that different binary and continuous indicators could be weighted and summed together as a measure of radicalization so that analyses could determine the degree of radicalization. 
+
+This report focuses on reproducing the paper's main results presented in Table 5 (screenshot below), including the study's key coefficient, $\beta_1$, which estimates the relationship between the local-level vote share for far-right parties and online measures of support for ISIS. 
+
+![](Data/table5.png)
+
+To evaluate the paper's findings, this report also attempts to determine the model's sensitivity to data by testing whether the variable unemployment rate confounds the true effect of far-right party shares on radicalization measures. Since unemployment rates can potentially impact both far-right party shares and support for ISIS, this report aims to clarify the causal mechanism linking anti-Muslim hostility to support for ISIS. I use stratification to adjust the measures of associations between far-right party shares and getting flagged as a pro-ISIS activist based on unemployment level. By calculating the odds-ratios for subsets of the data set based on unemployment rates, I determine that unemployment rate produces effect measure modification but does NOT confound the model. 
+
+In addition, this report tries to test the results' sensitivity to model choice. Since many of the response variables used by the paper are binary, I compare the f-scores and prediction errors of using a logistic vs. linear regression model using k-fold cross-validation. 
+
+### Reproducing the results
+```{r}
+slr_radcon <- lm(data=mitts,upper_1pc_is_topics_1000~right_wing_pct+unemployed_pct+foreigner_pct+population+population_squared+relevel(as.factor(mitts$country),"1"))
+summary(slr_radcon)
+
+slr_symp <- lm(data=mitts,upper_1pc_is_sympathy_1000~right_wing_pct+unemployed_pct+foreigner_pct+population+population_squared+relevel(as.factor(mitts$country),"1"))
+summary(slr_symp)
+
+slr_actv <- lm(data=mitts,activist_1000~right_wing_pct+unemployed_pct+foreigner_pct+population+population_squared+relevel(as.factor(mitts$country),"1"))
+summary(slr_actv)
+
+((mean(mitts$activist_1000)+summary(slr_actv)$coefficients[2])-mean(mitts$activist_1000))/mean(mitts$activist_1000)
+```
+By regressing three different response variables (1. top 1% radical content posters; 2. top 1% sympathizers with ISIS; and 3. posters flagged as ISIS activists) against the predictor variables indicated in the equation (making sure to use Belgium as the base category for `country`), I reproduced the first three columns of Table 5. I also calculated the percent change in the "flagged as an ISIS activist" variable. As found by Professor Mitts' paper, the likelihood of getting flagged as an ISIS activist increases by around 6% every time far-right party share increases by 1%.  
+
+### Testing sensitivity to data
+```{r}
+unempl_strata <- c()
+quantile(mitts$unemployed_pct,na.rm=T)
+# create a new variable called unempl_strata that stratifies the unemployment variable based on its quantiles
+for (i in seq_len(dim(mitts)[1])){
+  if (is.na(mitts$unemployed_pct[i])){
+    unempl_strata[i] = NA
+    }
+  else if (mitts$unemployed_pct[i] <= 3.4){
+    unempl_strata[i] = 1
+    }
+  else if (mitts$unemployed_pct[i] > 3.4 & mitts$unemployed_pct[i] <= 5){
+    unempl_strata[i] = 2
+    } 
+  else if (mitts$unemployed_pct[i] > 5 & mitts$unemployed_pct[i] <= 7){
+    unempl_strata[i] = 3
+    }
+  else if (mitts$unemployed_pct[i] > 7){
+    unempl_strata[i] = 4
+    }
+}
+mitts$unempl_strata <- unempl_strata
+
+# create a new variable called rwp_strata that stratifies the far-right party share variable into "low right-wing vote share" and "high right-wing vote share" based on its median
+rwp_strata <- c()
+for (i in seq_len(dim(mitts)[1])){
+  if (is.na(mitts$right_wing_pct[i])){
+    rwp_strata[i] = NA
+    }
+  else if (mitts$right_wing_pct[i] <= 12.17){
+    rwp_strata[i] = 1
+    }
+  else if (mitts$right_wing_pct[i] > 12.17){
+    rwp_strata[i] = 2
+    }
+}
+mitts$rwp_strata <- rwp_strata
+
+# calculate the odds-ratios of being flagged as an activist among those living in places with high vs. low far-right party shares
+no_unempl <- table(mitts$rwp_strata,mitts$activist)
+no_unempl <- cbind(no_unempl, Total = rowSums(no_unempl))
+crude_OR <- (no_unempl["2","1"]*no_unempl["1","0"]) / (no_unempl["2","0"]*no_unempl["1","1"])
+crude_OR
+
+# calculate the odds-ratios of being flagged as an activist among those living in places with high vs. low far-right party shares for each unemployment-rate-based subset of the data
+unempl1 <- table(subset(mitts,unempl_strata==1)$rwp_strata,subset(mitts,unempl_strata==1)$activist)
+unempl1 <- cbind(unempl1, Total = rowSums(unempl1))
+unempl1_OR <- (unempl1["2","1"]*unempl1["1","0"]) / (unempl1["2","0"]*unempl1["1","1"])
+unempl1_OR
+
+unempl2 <- table(subset(mitts,unempl_strata==2)$rwp_strata,subset(mitts,unempl_strata==2)$activist)
+unempl2 <- cbind(unempl2, Total = rowSums(unempl2))
+unempl2_OR <- (unempl2["2","1"]*unempl2["1","0"]) / (unempl2["2","0"]*unempl2["1","1"])
+unempl2_OR
+
+unempl3 <- table(subset(mitts,unempl_strata==3)$rwp_strata,subset(mitts,unempl_strata==3)$activist)
+unempl3 <- cbind(unempl3, Total = rowSums(unempl3))
+unempl3_OR <- (unempl3["2","1"]*unempl3["1","0"]) / (unempl3["2","0"]*unempl3["1","1"])
+unempl3_OR
+
+unempl4 <- table(subset(mitts,unempl_strata==4)$rwp_strata,subset(mitts,unempl_strata==4)$activist)
+unempl4 <- cbind(unempl4, Total = rowSums(unempl4))
+unempl4_OR <- (unempl4["2","1"]*unempl4["1","0"]) / (unempl4["2","0"]*unempl4["1","1"])
+unempl4_OR
+
+OR_df <- data.frame()
+ORs <- c(crude_OR, unempl1_OR, unempl2_OR, unempl3_OR, unempl4_OR)
+labels <- c("Crude","<3.4%","3.4-5%","5-7%","7%+")
+y_range <- c(crude_OR, unempl1_OR, unempl2_OR, unempl3_OR, unempl4_OR)
+rounded <- round(y_range,digits=3)
+ggplot(data=OR_df) + geom_bar(aes(x=ORs,y=labels),stat="summary") + ylab("Unemployment Rates") + xlab("Odds Ratios")
+```
+
+By generating subsets of the data based on unemployment rate levels, my report aims to identify whether unemployment rate functions as a confounding variable that biases the model or not. I use 2x2 tables created by comparing the number of activists vs. non-activists in areas with high far-right vote shares vs. low far-right vote shares to calculate each subset's odds ratio and thereby compare the impact of unemployment on far-right vote share's effect on radicalization levels. Taking the entire data set into account (i.e. regardless of unemployment rate in an area), the odds of getting flagged as a pro-ISIS activist in an area with a high far-right vote share is 1.15 times the odds of getting flagged in an area with a high far-right vote share. For individuals from areas where the unemployment rate is less than 3.4%, the odds of getting flagged as a pro-ISIS activist in an area with a high far-right vote share is 0.59 times the odds in an area with a high far-right vote share. On the other hand, in areas with an unemployment rate greater than 7%, the odds of getting flagged as a pro-ISIS activist in an area with a high far-right vote share is 14.25 times the odds  in an area with a high far-right vote share. In general, a variable is considered a confounder when its subsets create stratified odds ratios that are far away from the crude odds ratio but all in the same direction (i.e. since the crude odds ratio is biased away from the true odds ratio). In this case, since some of stratified odds ratios are below the crude odds ratio and some are above, it appears that unemployment rate does not have a confounding effect on the relationship between anti-Islam hostility and pro-ISIS radicalization. Instead, this report notes the presence of effect measure modification (when a measure of association like odds ratios change over the values of another variable). 
+
+Sources: https://online.stat.psu.edu/stat507/lesson/3/3.5; https://sph.unc.edu/wp-content/uploads/sites/112/2015/07/nciph_ERIC12.pdf
+
+### Testing sensitivity to model choice
+```{r}
+# create empty vector to collect f-scores generated by each tested threshold
+fscores <- c()
+slr <- lm(data=mitts,activist~right_wing_pct+unemployed_pct+foreigner_pct+population+population_squared+relevel(as.factor(country),"1"))
+df <- mitts %>%  filter(!row_number() %in% c(na.action(slr)))
+slr_preds <- predict(slr)
+thresholds <- seq(min(slr_preds,na.rm=T),max(slr_preds,na.rm=T),length.out=1000)
+# for each potential threshold, create a table comparing the predictions generated by the linear model and classified using the threshold with the true values of the variable `activist`
+# calculate the f-score and store it in the vector
+for(i in seq_along(thresholds)){
+  actual_slr_pred <- slr_preds >= thresholds[i]
+  slr_tab <- table(factor(as.logical(df$activist),levels=c("TRUE","FALSE")),factor(actual_slr_pred,levels=c("TRUE","FALSE")))
+  precision <- slr_tab[1,1]/(slr_tab[1,1]+slr_tab[2,1])
+  recall <- slr_tab[1,1]/(slr_tab[1,1]+slr_tab[1,2])
+  fscores[i] <- 2 * ((precision * recall) / (precision + recall))
+}
+# plot the thresholds against the f-scores they generated
+# find the threshold that maximizes the f-score 
+plot(thresholds,fscores)
+slr_thresh <- thresholds[which.max(fscores[fscores < 0.1])]
+
+# repeat this process for the logistic model
+fscores <- c()
+log <- glm(data=mitts,activist~right_wing_pct+unemployed_pct+foreigner_pct+population+population_squared+relevel(as.factor(country),"1"), family = binomial(link="logit"))
+log_preds <- predict(log,type="response")
+thresholds <- seq(min(log_preds,na.rm=T),max(log_preds,na.rm=T),length.out=1000)
+for(i in seq_along(thresholds)){
+  actual_log_pred <- log_preds >= thresholds[i]
+  log_tab <- table(factor(as.logical(df$activist),levels=c("TRUE","FALSE")),factor(actual_log_pred,levels=c("TRUE","FALSE")))
+  precision <- log_tab[1,1]/(log_tab[1,1]+log_tab[2,1])
+  recall <- log_tab[1,1]/(log_tab[1,1]+log_tab[1,2])
+  fscores[i] <- 2 * ((precision * recall) / (precision + recall))
+}
+plot(thresholds,fscores)
+log_thresh <- thresholds[which.max(fscores)]
+```
+In an attempt to test the results' sensitivity to model choice, I use k-fold validation to determine whether a logistic or linear regression model is more accurate and if the paper's conclusions change depending on the model used. First, I attempt to determine the best threshold for classification for both the linear and logistic models. I do this by finding the threshold value for each model that maximizes its f-score (i.e. a measure of its accuracy based on precision and recall) as indicated by the two graphs above. 
+
+```{r}
+k <- 10
+n <- dim(mitts)[1]
+folds <- sample(k, n, replace=TRUE)
+rmse <- matrix(NA, ncol=2, nrow=k)
+fscores <- matrix(NA, ncol=2,nrow=k)
+
+for(i in seq_len(k)){
+    is_train <- folds != i
+    is_test <- !is_train
+    
+    train_df <- mitts[is_train, ]
+    test_df <- mitts[is_test, ]
+    
+    slr <- lm(data=train_df,activist~right_wing_pct+unemployed_pct+foreigner_pct+population+population_squared+relevel(as.factor(country),"1"))
+    log <- glm(data=train_df,activist~right_wing_pct+unemployed_pct+foreigner_pct+population+population_squared+relevel(as.factor(country),"1"), family = binomial(link="logit"))
+    
+    slr_yhat <- predict(slr, newdata = test_df)
+    log_yhat <- predict(log, newdata = test_df, type="response")
+    
+    slr_error <- (test_df$activist - slr_yhat)
+    log_error <- (test_df$activist - log_yhat)
+    
+    rmse[i, 1] <- sqrt(mean(slr_error^2,na.rm=T)) 
+    rmse[i, 2] <- sqrt(mean(log_error^2,na.rm=T))
+    
+    slr_actual_pred <- slr_yhat >= slr_thresh 
+    log_actual_pred <- log_yhat >= log_thresh
+    
+    slr_mod <- table(factor(as.logical(test_df$activist),levels=c("TRUE","FALSE")),factor(slr_actual_pred,levels=c("TRUE","FALSE")))
+    log_mod <- table(factor(as.logical(test_df$activist),levels=c("TRUE","FALSE")),factor(log_actual_pred,levels=c("TRUE","FALSE")))
+    
+    slr_precision <- slr_mod[1,1]/(slr_mod[1,1]+slr_mod[2,1])
+    log_precision <- log_mod[1,1]/(log_mod[1,1]+log_mod[2,1])
+    slr_recall <- slr_mod[1,1]/(slr_mod[1,1]+slr_mod[1,2])
+    log_recall <- log_mod[1,1]/(log_mod[1,1]+log_mod[1,2])
+    slr_fscore <- 2 * ((slr_precision * slr_recall) / (slr_precision + slr_recall))
+    log_fscore <- 2 * ((log_precision * log_recall) / (log_precision + log_recall))
+    
+    fscores[i, 1] <- slr_fscore
+    fscores[i, 2] <- log_fscore
+}
+apply(rmse, 2, mean)
+fscores[is.nan(fscores)] <- NA
+apply(fscores, 2, mean, na.rm=T)
+
+slr <- lm(data=mitts,activist~right_wing_pct+unemployed_pct+foreigner_pct+population+population_squared+relevel(as.factor(country),"1"))
+summary(slr)
+log <- glm(data=mitts,activist~right_wing_pct+unemployed_pct+foreigner_pct+population+population_squared+relevel(as.factor(country),"1"), family = binomial(link="logit"))
+summary(log)
+```
+Once the thresholds are tuned, I use k-fold cross validation to compare each model's f-scores and prediction errors. The logistic model's prediction error, estimated using root-mean-square error, is slightly lower than the linear model's prediction f-score and its f-score is higher as well. As a result, the logisitic model could offer a useful alternative to the linear model used in the paper. Notably, comparing the regression analysis with the logistic analysis suggests that all features maintain similar levels of statistical significance, and the logistic model confirms that the variable `right_wing_pct` is the variable with the strongest substantial effect on a person's likelihood to be flagged as a pro-ISIS activist. 
+
+### Conclusion
+Attempting to resolve this paper's lack of insight into the causal mechanisms connecting anti-Islam hostility to pro-ISIS radicalization, this report explores the effect of the variable `unemployment_pct` on the relationship. I reaction to the high number of binary response variables present in the data set, I also aim to determine the stability of the linear regression model's results when a logistic model is used instead. Through its sensitivtity analyses, this report offers evidence that 1. the paper's primary model successfully controls for the unemployment rate feature and 2. a logistic model could potentially provide more accurate predictions of individuals' likelihood of radicalization. 
