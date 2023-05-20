@@ -1,6 +1,5 @@
 ---
 author: "Abby Sim"
-title: "2103 Final Project"
 output: word_document
 date: "2022-12-16"
 ---
